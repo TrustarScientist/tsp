@@ -1,0 +1,52 @@
+# Byte-compiled / optimized / DLL files
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Local environment files containing secret keys and credentials
+.env
+.env.local
+*.env
+
+# Virtual environments
+venv/
+.venv/
+env/
+ENV/
+
+# Database files (if using SQLite for local development)
+*.sqlite3
+
+# Media and Static directories (uploaded files and collected assets)
+/backend/static/
+/backend/media/
+
+# OS-specific files
+.DS_Store
+Thumbs.db
+
+# IDEs and text editors
+.idea/
+.vscode/
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+*.swp
+
+
+# Python / Django
+backend/venv/
+backend/__pycache__/
+backend/**/__pycache__/
+backend/*.pyc
+backend/.env
+backend/db.sqlite3
+
+# Node / Next.js (once frontend exists)
+frontend/node_modules/
+frontend/.next/
+frontend/.env.local
+
+# General
+.DS_Store
