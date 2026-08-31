@@ -50,3 +50,43 @@ frontend/.env.local
 
 # General
 .DS_Store
+
+# Dependencies
+/node_modules
+/.pnp
+.pnp.js
+.yarn/
+
+# Next.js Build Output
+/.next/
+/out/
+
+# Production Build Artifacts
+build/
+
+# Local Environment Variables
+.env*.local
+.env
+*.env
+
+# Debug logs
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+# Vercel Deployment Artifacts
+.vercel
+
+# Testing
+/coverage
+
+# OS-specific files
+.DS_Store
+*.pem
+
+# IDEs and Text Editors
+.idea/
+.vscode/
+*.suo
+*.swp
