@@ -39,10 +39,14 @@ INSTALLED_APPS = [
     'django.contrib.sessions',
     'django.contrib.messages',
     'django.contrib.staticfiles',
+    # dependencies
+    'simple_history',
     # custom apps
     "apps.core",
     "apps.identity",
     "apps.authorization",
+    'apps.people',
+    
 ]
 
 MIDDLEWARE = [
@@ -54,6 +58,7 @@ MIDDLEWARE = [
     'django.contrib.messages.middleware.MessageMiddleware',
     'django.middleware.clickjacking.XFrameOptionsMiddleware',
     "apps.core.middleware.TenantMiddleware",
+    "simple_history.middleware.HistoryRequestMiddleware",
 ]
 
 DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"

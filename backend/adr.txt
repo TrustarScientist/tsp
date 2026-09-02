@@ -1,0 +1,101 @@
+# ADR-001: Multi-Tenant Isolation — Dual Enforcement (Application + Database)
+
+**Status:** Accepted
+**Date:** September 2026
+**Context:** Trustar School Platform (TSP) backend, `apps/core`, `apps/people`
+
+---
+
+## Decision
+
+Tenant isolation is enforced at **two independent layers**, not one:
+
+1. **Application layer** — `TenantScopedManager` (Django), which filters every query by the tenant currently held in a `contextvars.ContextVar`. Fails closed: raises `TenantContextMissing` if no tenant is set, rather than silently returning unfiltered data.
+2. **Database layer** — PostgreSQL Row-Level Security (RLS), which filters/blocks rows based on a Postgres session variable (`app.current_tenant_id`), independent of what Django code does or forgets to do.
+
+Both layers are set together, from the same source of truth, for the duration of a request or admin action — never independently.
+
+## Why two layers, not one
+
+A single layer means a single point of failure. If application-level filtering is the *only* protection:
+- A bug in a view or manager that skips `.objects` (uses raw SQL, or a new manager someone adds later without realizing the convention) silently leaks cross-tenant data.
+- A future feature — such as an AI-assisted natural-language-to-SQL reporting tool — could generate a raw query that bypasses the ORM layer entirely, with no protection at all unless the database itself also enforces isolation.
+
+RLS makes cross-tenant access **structurally impossible at the database level**, regardless of what application code does. This is the standard "defense in depth" principle: assume any one layer can fail or be bypassed, and never rely on exactly one.
+
+## How it works
+
+### The two things that must be set together
+
+| | Application layer | Database layer |
+|---|---|---|
+| What | `set_current_tenant(tenant)` | `SET LOCAL app.current_tenant_id = '<uuid>'` |
+| Where it lives | `apps/core/models.py` — `contextvars.ContextVar` | `apps/core/db.py` — `tenant_scope()` context manager |
+| Scope | Current Python execution context (thread/async-task safe) | Current Postgres transaction (via `SET LOCAL`, auto-resets on commit/rollback) |
+
+`tenant_scope(tenant)` wraps both database work and the surrounding `transaction.atomic()` block — `SET LOCAL`, not plain `SET`, is essential here: it's transaction-scoped, so it can never leak into whatever the *next* request happens to reuse the same pooled connection for (critical for PgBouncer transaction-mode pooling, our locked production setup).
+
+### Where this gets wired in
+
+- **`TenantMiddleware`** (`apps/core/middleware.py`) — sets both layers for every real HTTP request, resolved via the JWT → header → Host-header resolver chain.
+- **`TenantScopedAdmin`** (`apps/people/admin.py`) — Django Admin is a *different kind of actor* than a normal request: the platform operator (Daniel, via `/admin/`) isn't scoped to one tenant at all — they need to see and edit across every tenant. This required its own explicit handling, described below.
+
+## The Django Admin problem (and why it took several iterations to get right)
+
+Django Admin's internals — `changelist_view`, `_changeform_view`, form validation, `save_model`, post-save `get_object` — all touch the tenant-scoped manager (`.objects`) internally, in multiple different code paths, at different points in the request lifecycle. Patching each path individually (as they were discovered) is what made this feel confusing while being built. The final, correct shape has exactly two ideas:
+
+1. **Browsing the list** (`changelist_view`) needs to see *everything*, across all tenants — an explicit, intentional RLS bypass (`platform_admin_scope()`), not tenant-scoping at all.
+2. **Adding or editing one record** (`_changeform_view`) needs to know *which one tenant* this specific record belongs to (resolved from the submitted form or the existing object), and both layers need that tenant set for the *entire* duration of the request — validation, save, and the post-save redirect all happen inside that one wrapped block.
+
+### Two known gotchas, now handled
+
+**1. RLS exempts table owners by default.** `ENABLE ROW LEVEL SECURITY` alone does not apply to the table's owning role (`tsp_user`, in our case, since it owns the database). This silently made RLS appear to do nothing during initial testing — reads and writes succeeded as if no policy existed at all. Fixed with:
+```sql
+ALTER TABLE people_student FORCE ROW LEVEL SECURITY;
+```
+
+**2. `all_objects` (Django) does not bypass RLS (Postgres).** These are two unrelated systems. Using `all_objects.all()` skips Django's own tenant filter, but the resulting SQL is still sent to Postgres as a plain query — and with `FORCE ROW LEVEL SECURITY` on, Postgres still evaluates the policy. Without an explicit tenant *or* an explicit bypass flag set, the policy matches nothing and returns zero rows — even via `all_objects`. This is why the platform-admin list view needed its own explicit RLS bypass flag (`app.bypass_tenant_scope`), not just a different Django manager.
+
+### The bypass flag, added to the policy
+
+```sql
+CREATE POLICY tenant_isolation_student ON people_student
+    USING (
+        current_setting('app.bypass_tenant_scope', true) = 'true'
+        OR tenant_id = NULLIF(current_setting('app.current_tenant_id', true), '')::uuid
+    )
+    WITH CHECK (
+        current_setting('app.bypass_tenant_scope', true) = 'true'
+        OR tenant_id = NULLIF(current_setting('app.current_tenant_id', true), '')::uuid
+    );
+```
+
+`platform_admin_scope()` sets `app.bypass_tenant_scope = 'true'` for the duration of a transaction — used **only** in `TenantScopedAdmin.changelist_view` and when resolving an existing object for editing. It is never used in ordinary application code, API views, or anywhere a real end-user's request is being handled. This is the platform's one deliberate, documented, narrowly-scoped "break glass" mechanism — not a general escape hatch.
+
+`NULLIF(..., '')::uuid` guards against a hard cast error if the session variable is ever an empty string rather than genuinely unset.
+
+## Consequences
+
+**What this buys us:**
+- Cross-tenant data leakage requires *both* a Django-level bug *and* a database-level bypass to occur simultaneously — a much higher bar than either layer alone.
+- Any future raw-SQL tooling (reporting, an eventual natural-language-to-SQL assistant, a background job) is automatically protected by RLS even if it never touches Django's ORM at all.
+- The platform-operator ("God mode" admin) capability is explicit, named, and grep-able (`platform_admin_scope`) — not an accidental side effect of using the wrong manager.
+
+**What this costs us:**
+- Every new tenant-scoped app (e.g., future `attendance`, `grading`) needs its own RLS policy written and `FORCE`d — this is now a checklist item, not automatic.
+- Django Admin for tenant-scoped models needs to inherit `TenantScopedAdmin` deliberately — a plain `admin.ModelAdmin` registration will hit `TenantContextMissing` immediately.
+- `SET LOCAL` requires every tenant-scoped operation to run inside `transaction.atomic()` — already true via `tenant_scope()`/`platform_admin_scope()`, but worth remembering if writing new code that touches these tables directly.
+
+## Checklist for adding a new tenant-scoped model
+
+1. Inherit from `TenantScopedModel` (gets `tenant` FK, `TenantScopedManager`, `all_objects` escape hatch, soft delete, timestamps automatically).
+2. Write and apply the RLS policy for the new table (`ENABLE` + `FORCE` + `CREATE POLICY` with the bypass-flag pattern above).
+3. If it needs a Django Admin interface, inherit `TenantScopedAdmin` from `apps/people/admin.py` (consider promoting it to `apps/core/admin.py` as a shared base once a second app needs it).
+4. Write a test matching the `apps/people/tests.py` pattern: fail-closed with no context, correct isolation with context set, per-tenant uniqueness (if applicable).
+
+## Related
+
+- `apps/core/models.py` — `TenantScopedModel`, `TenantScopedManager`, `TenantContextMissing`, `contextvars`-based context storage
+- `apps/core/middleware.py` — `TenantMiddleware`, resolver chain (JWT → header → Host)
+- `apps/core/db.py` — `tenant_scope()`, `platform_admin_scope()`
+- `apps/people/admin.py` — `TenantScopedAdmin`, the reference implementation for any future tenant-scoped Admin class

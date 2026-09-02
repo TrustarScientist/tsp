@@ -6,6 +6,7 @@ override layer for ad-hoc grants/denials. Deny-by-default throughout.
 """
 from django.conf import settings
 from django.db import models
+from simple_history.models import HistoricalRecords
 
 
 class Role(models.Model):
@@ -44,7 +45,7 @@ class UserRoleAssignment(models.Model):
     role = models.ForeignKey(Role, on_delete=models.PROTECT)
     is_active = models.BooleanField(default=True)
     expires_at = models.DateTimeField(null=True, blank=True)  # e.g. substitute teachers
-
+    history = HistoricalRecords() 
     class Meta:
         constraints = [
             models.UniqueConstraint(
@@ -80,6 +81,11 @@ class UserPermissionOverride(models.Model):
         settings.AUTH_USER_MODEL, on_delete=models.SET_NULL, null=True, related_name="+"
     )
     created_at = models.DateTimeField(auto_now_add=True)
+    # new for "hard" auditing
+    history = HistoricalRecords() 
+
+
+
 
     class Meta:
         constraints = [

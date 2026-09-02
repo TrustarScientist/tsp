@@ -1,3 +1,7 @@
-from django.shortcuts import render
+# apps/core/views.py — new file
+from django.http import HttpResponse
 
-# Create your views here.
+def whoami(request):
+    if request.tenant:
+        return HttpResponse(f"Resolved tenant: {request.tenant.name} ({request.tenant.subdomain})")
+    return HttpResponse("No tenant resolved.")

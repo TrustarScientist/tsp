@@ -10,6 +10,23 @@ from django.conf import settings
 from django.db import models
 
 
+
+# audits when and where crucially needed
+class AuditedModel(models.Model):
+    """Mixin for models needing a change-history trail. Not every model
+    needs this — add it deliberately where an audit trail has real
+    institutional or legal weight, not universally."""
+    created_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL, null=True, blank=True,
+        related_name="+", on_delete=models.SET_NULL
+    )
+    updated_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL, null=True, blank=True,
+        related_name="+", on_delete=models.SET_NULL
+    )
+
+    class Meta:
+        abstract = True
 # ---------------------------------------------------------------------
 # Timestamps on every model, no exceptions. Soft delete as the default.
 # ---------------------------------------------------------------------
@@ -66,7 +83,7 @@ class SoftDeleteModel(TimestampedModel):
 # — see Campus below for that case.
 # ---------------------------------------------------------------------
 
-class Tenant(TimestampedModel):
+class Tenant(TimestampedModel, AuditedModel):
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     name = models.CharField(max_length=255)
 
@@ -172,11 +189,28 @@ def reset_current_tenant(token):
     _current_tenant.reset(token)         # restores prior value exactly
 
 
+# Bypass
+_bypass_tenant_scope: contextvars.ContextVar = contextvars.ContextVar(
+    "bypass_tenant_scope", default=False
+)
+
+def get_bypass_tenant_scope():
+    return _bypass_tenant_scope.get()
+
+def set_bypass_tenant_scope(value):
+    return _bypass_tenant_scope.set(value)
+
+def reset_bypass_tenant_scope(token):
+    _bypass_tenant_scope.reset(token)
+
 
 
 
 class TenantScopedManager(models.Manager):
     def get_queryset(self):
+        if get_bypass_tenant_scope():
+            return super().get_queryset().filter(deleted_at__isnull=True)
+
         tenant = get_current_tenant()
         if tenant is None:
             raise TenantContextMissing(

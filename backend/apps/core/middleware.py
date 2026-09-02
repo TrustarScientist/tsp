@@ -13,7 +13,7 @@ raise TenantContextMissing rather than silently running unfiltered.
 Fail closed, always.
 """
 from .models import Tenant, set_current_tenant, reset_current_tenant
-
+from apps.core.db import tenant_scope
 
 class TenantResolver:
     def resolve(self, request):
@@ -96,10 +96,8 @@ class TenantMiddleware:
         request.tenant = tenant
         token = set_current_tenant(tenant)
         try:
-            response = self.get_response(request)
+            with tenant_scope(tenant):
+                response = self.get_response(request)
         finally:
-            # Always reset — critical in threaded/sync workers, where
-            # the same thread handles the next request and would
-            # otherwise inherit this request's tenant.
             reset_current_tenant(token)
         return response
