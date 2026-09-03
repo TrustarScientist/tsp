@@ -6,6 +6,8 @@ students, staff, and the guardians connected to students. Deliberately
 institution-agnostic — no grade/class/curriculum fields here. That
 belongs to the academics domain.
 """
+from simple_history.models import HistoricalRecords
+    
 import uuid
 
 from django.conf import settings
@@ -47,6 +49,10 @@ class Student(TenantScopedModel):
     # here; actual enforcement in permission-checking logic is deferred.
     is_privacy_restricted = models.BooleanField(default=False)
 
+    # history
+    history = HistoricalRecords()
+
+
     class Meta:
         constraints = [
             models.UniqueConstraint(
@@ -54,6 +60,8 @@ class Student(TenantScopedModel):
                 name="unique_admission_number_per_tenant",
             ),
         ]
+
+        
 
     def __str__(self):
         return f"{self.first_name} {self.last_name} ({self.admission_number})"
@@ -84,6 +92,9 @@ class Staff(TenantScopedModel):
     is_active_employee = models.BooleanField(default=True)
     date_joined = models.DateField(null=True, blank=True)
 
+    # history
+    history = HistoricalRecords()
+
     class Meta:
         constraints = [
             models.UniqueConstraint(
@@ -91,6 +102,7 @@ class Staff(TenantScopedModel):
                 name="unique_staff_number_per_tenant",
             ),
         ]
+
 
     def __str__(self):
         return f"{self.user} — staff #{self.staff_number}"
@@ -117,6 +129,9 @@ class GuardianRelationship(TenantScopedModel):
     relationship_type = models.CharField(max_length=20, choices=RELATIONSHIP_CHOICES, default="parent")
     is_primary_contact = models.BooleanField(default=False)
 
+    # history
+    history = HistoricalRecords()
+
     class Meta:
         constraints = [
             models.UniqueConstraint(
@@ -124,6 +139,8 @@ class GuardianRelationship(TenantScopedModel):
                 name="unique_guardian_student_pair",
             ),
         ]
+
+        
 
     def __str__(self):
         return f"{self.guardian} → {self.student} ({self.relationship_type})"

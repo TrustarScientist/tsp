@@ -18,7 +18,10 @@ from django.contrib import admin
 from django.urls import path
 from apps.core.views import whoami
 
+from apps.payments.views import paystack_webhook
+
 urlpatterns = [
     path("admin/", admin.site.urls),
     path("whoami/", whoami),
+    path("webhooks/paystack/", paystack_webhook),
 ]

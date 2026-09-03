@@ -99,3 +99,36 @@ CREATE POLICY tenant_isolation_student ON people_student
 - `apps/core/middleware.py` — `TenantMiddleware`, resolver chain (JWT → header → Host)
 - `apps/core/db.py` — `tenant_scope()`, `platform_admin_scope()`
 - `apps/people/admin.py` — `TenantScopedAdmin`, the reference implementation for any future tenant-scoped Admin class
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+-- ============================================================
+-- RLS template — copy for each new TenantScopedModel table.
+-- Replace TABLE_NAME and POLICY_NAME (convention: tenant_isolation_<table>)
+-- ============================================================
+
+ALTER TABLE TABLE_NAME ENABLE ROW LEVEL SECURITY;
+ALTER TABLE TABLE_NAME FORCE ROW LEVEL SECURITY;
+
+CREATE POLICY tenant_isolation_TABLE_NAME ON TABLE_NAME
+    USING (
+        current_setting('app.bypass_tenant_scope', true) = 'true'
+        OR tenant_id = NULLIF(current_setting('app.current_tenant_id', true), '')::uuid
+    )
+    WITH CHECK (
+        current_setting('app.bypass_tenant_scope', true) = 'true'
+        OR tenant_id = NULLIF(current_setting('app.current_tenant_id', true), '')::uuid
+    );
