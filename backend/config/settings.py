@@ -47,6 +47,8 @@ INSTALLED_APPS = [
     'django.contrib.staticfiles',
     # dependencies
     'simple_history',
+    "rest_framework",
+    "rest_framework_simplejwt",
     # custom apps
     "apps.core",
     "apps.identity",
@@ -69,6 +71,13 @@ MIDDLEWARE = [
     "apps.core.middleware.TenantMiddleware",
     "simple_history.middleware.HistoryRequestMiddleware",
 ]
+
+REST_FRAMEWORK = {
+    "DEFAULT_AUTHENTICATION_CLASSES": (
+        "rest_framework_simplejwt.authentication.JWTAuthentication",
+    ),
+}
+
 
 DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
 

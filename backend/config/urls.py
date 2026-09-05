@@ -17,6 +17,9 @@ Including another URLconf
 from django.contrib import admin
 from django.urls import path
 from apps.core.views import whoami
+# config/urls.py
+from apps.identity.views import TenantAwareTokenObtainPairView
+from rest_framework_simplejwt.views import TokenRefreshView
 
 from apps.payments.views import paystack_webhook
 
@@ -24,4 +27,9 @@ urlpatterns = [
     path("admin/", admin.site.urls),
     path("whoami/", whoami),
     path("webhooks/paystack/", paystack_webhook),
+    path("api/token/", TenantAwareTokenObtainPairView.as_view()),
+    path("api/token/refresh/", TokenRefreshView.as_view()),
 ]
+
+
+
